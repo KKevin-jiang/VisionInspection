@@ -1,0 +1,34 @@
+{
+  "camera": {
+    "exposure_us": 20000.0,
+    "gain_raw": 18.0,
+    "gamma": 1.0,
+    "frame_rate": 30.0,
+    "digital_gain": 1.0
+  },
+  "database": {
+    "server": "192.168.0.101\\SQL201",
+    "database": "BLT",
+    "username": "sa",
+    "password": "123456",
+    "serial_table": "T_SerialNo",
+    "serial_field": "ActSerialNo",
+    "model_field": "MachineType",
+    "result_table": "T_VisionResult",
+    "station_id": "ST001"
+  },
+  "crankshaft_api": {
+    "base_url": "http://192.168.0.101:8080",
+    "timeout_ms": 1500,
+    "source": "vision-inspection"
+  },
+  "switch_mode": "auto",
+  "storage": {
+    "image_root": "D:\\VisionImages",
+    "save_pass_images": true,
+    "log_root": "D:\\VisionLogs"
+  },
+  "io": {
+    "line1_pass_duration_ms": 500
+  }
+}

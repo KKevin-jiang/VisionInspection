@@ -1,0 +1,118 @@
+{
+  "schema_version": "1.0",
+  "app_version": "1.0.0",
+  "recipe": {
+    "id": "recipe-cap-001",
+    "code": "P001",
+    "name": "涂胶检测",
+    "product_name": "NV169",
+    "product_model": "NV169",
+    "description": "NV169涂胶检测",
+    "station_id": "station100",
+    "camera_id": "CAM01",
+    "enabled": true,
+    "trigger_mode": "plc_external",
+    "template_match_mode": "single_active",
+    "templates": [
+      {
+        "id": "tpl-cap-a-001",
+        "code": "TPL001",
+        "name": "涂胶视觉检测",
+        "enabled": true,
+        "is_default": true,
+        "image_path": "D:\\02_程序\\02_98line\\05_visual check\\01_background\\Python\\vision_inspection\\data\\records\\recipe-cap-001\\2026-05-18\\tem.png",
+        "image_width": 3072,
+        "image_height": 2048,
+        "image_checksum": "",
+        "match_priority": 1,
+        "roi_list": [
+          {
+            "id": "roi-logo-001",
+            "index": 1,
+            "name": "ROI 1",
+            "enabled": true,
+            "shape": "rectangle",
+            "x": 1185,
+            "y": 753,
+            "width": 1785,
+            "height": 1061,
+            "threshold": 0.15,
+            "algorithm": "binary_gray_ratio",
+            "algorithm_params": {
+              "gray_max": 95,
+              "gray_min": 0,
+              "invert": false,
+              "min_area": 20
+            },
+            "score_weight": 1.0,
+            "fail_color": "#ff3b30",
+            "pass_color": "#22c55e",
+            "description": "",
+            "created_at": "2026-05-18T10:00:00+08:00",
+            "updated_at": "2026-05-27T14:32:22+08:00"
+          }
+        ],
+        "description": "良品标准模板",
+        "tags": [
+          "default"
+        ],
+        "created_at": "2026-05-18T10:00:00+08:00",
+        "updated_at": "2026-05-27T14:32:22+08:00"
+      }
+    ],
+    "decision_policy": {
+      "mode": "all_roi_pass",
+      "min_pass_count": null,
+      "allow_disabled_roi": true,
+      "final_ng_on_any_fail": true
+    },
+    "preprocess": {
+      "grayscale": true,
+      "resize_mode": "keep_roi_size",
+      "denoise_enabled": false,
+      "denoise_method": "gaussian",
+      "normalize_enabled": true,
+      "blur_kernel": 3
+    },
+    "plc": {
+      "enabled": true,
+      "trigger_source": "plc",
+      "protocol": "pending",
+      "connection": {},
+      "ng_output": {
+        "enabled": true,
+        "signal_name": "NG_OUT",
+        "channel": "Y0",
+        "pulse_ms": 100,
+        "delay_ms": 0,
+        "reset_mode": "auto"
+      },
+      "heartbeat_enabled": false,
+      "timeout_ms": 500
+    },
+    "storage": {
+      "root_dir": "data",
+      "save_raw_image": false,
+      "save_result_image": true,
+      "save_only_ng_image": false,
+      "save_json_record": true,
+      "save_csv_summary": false,
+      "recipe_subdir_mode": "by_recipe",
+      "date_subdir_mode": "by_day",
+      "max_retention_days": 30
+    },
+    "runtime": {
+      "target_cycle_ms": 1000,
+      "detection_timeout_ms": 800,
+      "retry_on_capture_fail": 1,
+      "allow_manual_test": true
+    },
+    "created_at": "2026-05-18T10:00:00+08:00",
+    "updated_at": "2026-05-27T14:32:22+08:00",
+    "created_by": "admin",
+    "updated_by": "admin",
+    "tags": [
+      "demo"
+    ]
+  }
+}

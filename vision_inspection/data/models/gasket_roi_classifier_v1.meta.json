@@ -1,0 +1,15 @@
+{
+  "model_name": "gasket_roi_classifier_v1",
+  "model_version": "1.0.0",
+  "task_type": "roi_binary_classification",
+  "input_width": 224,
+  "input_height": 224,
+  "color_mode": "rgb",
+  "normalize_to_01": true,
+  "mean": [0.485, 0.456, 0.406],
+  "std": [0.229, 0.224, 0.225],
+  "class_names": ["absent", "present"],
+  "positive_label": "present",
+  "score_threshold": 0.5,
+  "notes": "将同名 ONNX 文件放在当前目录，配方中的 model_path 指向 models/gasket_roi_classifier_v1.onnx。"
+}

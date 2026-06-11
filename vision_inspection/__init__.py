@@ -1,0 +1,1 @@
+"""Vision inspection application package."""

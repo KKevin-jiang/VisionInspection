@@ -1,0 +1,8 @@
+PyQt5>=5.15.9
+opencv-python>=4.8.0
+numpy>=1.24.0,<2        # PyTorch 2.1 兼容，限制 <2
+pyodbc>=5.0.0
+requests>=2.31.0        # 曲轴工位 HTTP API 客户端
+ultralytics>=8.0.0
+pandas>=2.0.0
+openpyxl>=3.1.0

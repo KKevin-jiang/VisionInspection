@@ -1,0 +1,137 @@
+{
+  "schema_version": "1.0",
+  "app_version": "1.0.0",
+  "recipe": {
+    "id": "recipe-cap-ai-shadow-demo",
+    "code": "P001-AI-SHADOW",
+    "name": "垫片检测-AI并行示例",
+    "product_name": "163",
+    "product_model": "CAP-A",
+    "description": "示例配方：规则法主判定，AI 分类作为并行对照结果，不直接决定最终 NG 输出。",
+    "station_id": "station100",
+    "camera_id": "CAM01",
+    "enabled": false,
+    "trigger_mode": "plc_external",
+    "template_match_mode": "single_active",
+    "templates": [
+      {
+        "id": "tpl-cap-a-001",
+        "code": "TPL001",
+        "name": "垫片模板-AI并行示例",
+        "enabled": true,
+        "is_default": true,
+        "image_path": "D:/02_程序/02_98line/05_visual check/01_background/Python/vision_inspection/data/records/recipe-cap-001/2026-05-18/tem.png",
+        "image_width": 3072,
+        "image_height": 2048,
+        "image_checksum": "",
+        "match_priority": 1,
+        "roi_list": [
+          {
+            "id": "roi-gasket-001",
+            "index": 1,
+            "name": "垫片检测ROI",
+            "enabled": true,
+            "shape": "rectangle",
+            "x": 832,
+            "y": 730,
+            "width": 650,
+            "height": 173,
+            "threshold": 0.45,
+            "algorithm": "binary_gray_ratio",
+            "algorithm_params": {
+              "gray_max": 130,
+              "gray_min": 60,
+              "invert": true,
+              "min_area": 20,
+              "parallel_enabled": true,
+              "parallel_algorithm": "ai_classifier",
+              "parallel_threshold": 0.50,
+              "parallel_algorithm_params": {
+                "model_path": "models/gasket_roi_classifier_v1.onnx",
+                "model_name": "gasket_roi_classifier_v1",
+                "model_version": "1.0.0",
+                "class_names": ["absent", "present"],
+                "positive_label": "present",
+                "input_width": 224,
+                "input_height": 224,
+                "score_threshold": 0.50,
+                "color_mode": "rgb",
+                "normalize_to_01": true,
+                "mean": [0.485, 0.456, 0.406],
+                "std": [0.229, 0.224, 0.225]
+              }
+            },
+            "score_weight": 1.0,
+            "fail_color": "#ff3b30",
+            "pass_color": "#22c55e",
+            "description": "规则法主判定，AI 作为 shadow 对照。",
+            "created_at": "2026-05-23T12:00:00+08:00",
+            "updated_at": "2026-05-23T12:00:00+08:00"
+          }
+        ],
+        "description": "默认模板，沿用当前样例模板图。",
+        "tags": [
+          "demo",
+          "ai-shadow"
+        ],
+        "created_at": "2026-05-23T12:00:00+08:00",
+        "updated_at": "2026-05-23T12:00:00+08:00"
+      }
+    ],
+    "decision_policy": {
+      "mode": "all_roi_pass",
+      "min_pass_count": null,
+      "allow_disabled_roi": true,
+      "final_ng_on_any_fail": true
+    },
+    "preprocess": {
+      "grayscale": true,
+      "resize_mode": "keep_roi_size",
+      "denoise_enabled": false,
+      "denoise_method": "gaussian",
+      "normalize_enabled": true,
+      "blur_kernel": 3
+    },
+    "plc": {
+      "enabled": true,
+      "trigger_source": "plc",
+      "protocol": "pending",
+      "connection": {},
+      "ng_output": {
+        "enabled": true,
+        "signal_name": "NG_OUT",
+        "channel": "Y0",
+        "pulse_ms": 100,
+        "delay_ms": 0,
+        "reset_mode": "auto"
+      },
+      "heartbeat_enabled": false,
+      "timeout_ms": 500
+    },
+    "storage": {
+      "root_dir": "data",
+      "save_raw_image": false,
+      "save_result_image": true,
+      "save_only_ng_image": false,
+      "save_json_record": true,
+      "save_csv_summary": false,
+      "recipe_subdir_mode": "by_recipe",
+      "date_subdir_mode": "by_day",
+      "max_retention_days": 30
+    },
+    "runtime": {
+      "target_cycle_ms": 1000,
+      "detection_timeout_ms": 800,
+      "retry_on_capture_fail": 1,
+      "allow_manual_test": true
+    },
+    "created_at": "2026-05-23T12:00:00+08:00",
+    "updated_at": "2026-05-23T12:00:00+08:00",
+    "created_by": "admin",
+    "updated_by": "admin",
+    "tags": [
+      "demo",
+      "ai-shadow"
+    ]
+  }
+}
