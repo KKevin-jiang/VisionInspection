@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from collections import deque
+import logging
 import os
 from pathlib import Path
 from time import perf_counter
 from typing import Optional
+
+_logger = logging.getLogger("vision_inspection.ui")
 
 from PyQt5.QtCore import QDateTime, QThread, Qt, QTimer
 from PyQt5.QtGui import QCloseEvent, QColor, QImage
@@ -248,7 +251,10 @@ class MainWindow(QMainWindow):
         self._update_clock_display()
         self._set_camera_params_enabled(False)
         self._apply_switch_mode_ui()
+        self._camera_controller.set_trigger_activation(self._app_config.camera_params.trigger_activation)
+        self._camera_controller.set_pass_pulse_ms(self._app_config.io.line1_pass_duration_ms)
         self._load_recipe_summaries()
+        self._refresh_status_indicators()
 
     def _algorithm_label(self, algorithm: str | None) -> str:
         return RoiResultTable.algorithm_label(algorithm)
@@ -670,7 +676,8 @@ class MainWindow(QMainWindow):
         try:
             devices = self._camera_controller.list_devices()
             if devices:
-                self.camera_label.setText("已连接")
+                ip = devices[0].ip_address or devices[0].display_name
+                self.camera_label.setText(f"{ip} 已连接")
                 self.camera_label.setStyleSheet("color: #55b56a; font-size: 14px; font-weight: 600;")
             else:
                 self.camera_label.setText("未连接")
@@ -695,7 +702,7 @@ class MainWindow(QMainWindow):
             self.host_com_label.setStyleSheet("color: #94a3b8; font-size: 14px; font-weight: 600;")
 
     def _open_settings_dialog(self) -> None:
-        dialog = SettingsDialog(self._app_config, self._project_root, self)
+        dialog = SettingsDialog(self._app_config, self._project_root, self, camera_controller=self._camera_controller)
         if dialog.exec_() == QDialog.Accepted:
             save_app_config(self._app_config, self._project_root)
             self._crankshaft_api = CrankshaftApiClient(
@@ -703,6 +710,8 @@ class MainWindow(QMainWindow):
                 timeout_ms=self._app_config.crankshaft_api.timeout_ms,
                 source=self._app_config.crankshaft_api.source,
             )
+            self._camera_controller.set_trigger_activation(self._app_config.camera_params.trigger_activation)
+            self._camera_controller.set_pass_pulse_ms(self._app_config.io.line1_pass_duration_ms)
             self._apply_switch_mode_ui()
             self._push_status_message("设置已保存")
 
@@ -1431,7 +1440,7 @@ class MainWindow(QMainWindow):
             self._stop_plc_listener()
         if document is None:
             self.station_label.setText("-")
-            self.camera_label.setText("-")
+            # camera_label is managed by _refresh_status_indicators — keep it stable
             self.product_label.setText("-")
             self.recipe_name_label.setText("-")
             self.current_template_info_label.setText("-")
@@ -1452,7 +1461,7 @@ class MainWindow(QMainWindow):
 
         self.recipe_name_label.setText(recipe.name)
         self.station_label.setText(recipe.station_id)
-        self.camera_label.setText(recipe.camera_id)
+        # camera_label is managed by _refresh_status_indicators — keep it stable
         self.product_label.setText(recipe.product_name)
         self.switch_machine_label.setText(recipe.name)
         if self._app_config.switch_mode == "manual":
@@ -1547,7 +1556,7 @@ class MainWindow(QMainWindow):
         self._inspection_worker.moveToThread(self._inspection_thread)
 
         self._inspection_thread.started.connect(self._inspection_worker.run)
-        self._inspection_worker.started.connect(lambda message: self._push_status_message(message))
+        self._inspection_worker.started.connect(self._on_inspection_started)
         self._inspection_worker.finished.connect(self._on_inspection_finished)
         self._inspection_worker.timed_out.connect(self._on_inspection_timed_out)
         self._inspection_worker.failed.connect(self._on_inspection_failed)
@@ -1557,13 +1566,25 @@ class MainWindow(QMainWindow):
         self._inspection_thread.finished.connect(self._cleanup_inspection_thread)
         self._inspection_thread.start()
 
+    def _on_inspection_started(self, message: str) -> None:
+        """处理检测线程启动消息。
+
+        IO 监听模式下检测线程会反复超时重入（~0.5s 间隔），
+        ``started`` 信号频繁发出"正在等待 Line0 触发"，
+        此时仅更新状态栏，不写入系统日志表，避免日志被刷屏。
+        """
+        if self._external_trigger_listening:
+            self._push_status_message(message, log=False)
+        else:
+            self._push_status_message(message)
+
     def _on_inspection_finished(self, execution_result: InspectionExecutionResult) -> None:
         capture = execution_result.capture
         inspection_result = execution_result.inspection_result
         self._external_wait_timeout_count = 0
         self.last_error_label.setText("-")
         self.image_canvas.set_image_array(capture.frame.image)
-        self.camera_label.setText(f"{self._current_recipe.recipe.camera_id} / {capture.device.display_name}")
+        # camera_label is managed by _refresh_status_indicators — keep it stable
         self._apply_inspection_result(inspection_result)
         status_message = (
             f"采图与检测完成: {capture.device.display_name}, 帧号 {capture.frame.frame_number}, "
@@ -1761,7 +1782,10 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            self._camera_controller.set_trigger_activation(self._app_config.camera_params.trigger_activation)
+            _logger.info("_start_external_trigger_listener: trigger_activation=%s", self._app_config.camera_params.trigger_activation)
             device_name = self._camera_controller.prepare_external_trigger_listener(preferred_device_index=0)
+            _logger.info("_start_external_trigger_listener: device ready, name=%s", device_name)
         except Exception as exc:
             self.last_error_label.setText(str(exc))
             self._push_status_message(f"启动 IO 监听失败: {exc}", level="ERROR")
@@ -1776,16 +1800,21 @@ class MainWindow(QMainWindow):
         self._set_camera_params_enabled(False)
         self.plc_label.setText("等待 Line0")
         self.result_label.setText("等待触发")
-        self.camera_label.setText(f"{self._current_recipe.recipe.camera_id} / {device_name}")
+        # camera_label is managed by _refresh_status_indicators — keep it stable
         self._set_runtime_state_style("IO触发待机", "#1d4ed8", "#dbeafe")
         self._push_status_message(f"相机外部 IO 监听已启动: {device_name}，等待 Line0 触发")
         self._queue_external_trigger_wait()
 
     def _queue_external_trigger_wait(self) -> None:
         if not self._external_trigger_listening or self._current_recipe is None:
+            _logger.debug("_queue_external_trigger_wait: skipped (listening=%s recipe=%s)",
+                          self._external_trigger_listening, self._current_recipe is not None)
             return
         if self._inspection_thread is not None and self._inspection_thread.isRunning():
+            _logger.debug("_queue_external_trigger_wait: skipped (thread still running)")
             return
+        _logger.info("_queue_external_trigger_wait: starting IO inspection (timeout_count=%d)",
+                     self._external_wait_timeout_count)
         if self._app_config.switch_mode == "auto":
             serial_no = self.switch_serial_input.text().strip()
             if serial_no:

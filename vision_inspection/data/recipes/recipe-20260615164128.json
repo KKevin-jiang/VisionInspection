@@ -2,10 +2,10 @@
   "schema_version": "1.0",
   "app_version": "1.0.0",
   "recipe": {
-    "id": "208",
-    "code": "208",
-    "name": "1062",
-    "product_name": "1062",
+    "id": "recipe-20260615164128",
+    "code": "P164128",
+    "name": "新配方",
+    "product_name": "",
     "product_model": "",
     "description": "",
     "station_id": "station100",
@@ -15,12 +15,12 @@
     "template_match_mode": "single_active",
     "templates": [
       {
-        "id": "tpl-20260601133005-001",
+        "id": "tpl-20260615164128-001",
         "code": "TPL001",
         "name": "模板1",
         "enabled": true,
         "is_default": true,
-        "image_path": "data/templates/208/template_1.jpg",
+        "image_path": "data/templates/recipe-20260615164128/template_1.jpg",
         "image_width": 3072,
         "image_height": 2048,
         "image_checksum": "",
@@ -32,34 +32,34 @@
             "name": "ROI 1",
             "enabled": true,
             "shape": "rectangle",
-            "x": 618,
-            "y": 1108,
-            "width": 196,
-            "height": 111,
-            "threshold": 0.08,
+            "x": 1163,
+            "y": 829,
+            "width": 76,
+            "height": 100,
+            "threshold": 0.9,
             "algorithm": "binary_gray_ratio",
             "algorithm_params": {
-              "gray_max": 100,
-              "gray_min": 30,
+              "gray_max": 160,
+              "gray_min": 40,
               "invert": false,
-              "min_area": 30,
-              "threshold_max": 0.3,
-              "threshold_min": 0.08
+              "min_area": 0,
+              "threshold_max": 1.0,
+              "threshold_min": 0.9
             },
             "score_weight": 1.0,
             "fail_color": "#ff3b30",
             "pass_color": "#22c55e",
             "description": "",
             "created_at": "",
-            "updated_at": "2026-06-10T15:49:25+08:00"
+            "updated_at": "2026-06-16T09:28:11+08:00"
           }
         ],
         "description": "良品标准模板",
         "tags": [
           "default"
         ],
-        "created_at": "2026-06-01T13:30:05+08:00",
-        "updated_at": "2026-06-10T15:49:25+08:00"
+        "created_at": "2026-06-15T16:41:28+08:00",
+        "updated_at": "2026-06-16T09:28:11+08:00"
       }
     ],
     "decision_policy": {
@@ -82,10 +82,10 @@
       "protocol": "pending",
       "connection": {},
       "ng_output": {
-        "enabled": true,
-        "signal_name": "NG_OUT",
+        "enabled": false,
+        "signal_name": "OK_OUT",
         "channel": "Line1",
-        "pulse_ms": 100,
+        "pulse_ms": 500,
         "delay_ms": 0,
         "reset_mode": "auto"
       },
@@ -109,8 +109,8 @@
       "retry_on_capture_fail": 1,
       "allow_manual_test": true
     },
-    "created_at": "2026-06-01T13:30:05+08:00",
-    "updated_at": "2026-06-10T15:49:25+08:00",
+    "created_at": "2026-06-15T16:41:28+08:00",
+    "updated_at": "2026-06-16T09:28:11+08:00",
     "created_by": "admin",
     "updated_by": "admin",
     "tags": [

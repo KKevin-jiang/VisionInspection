@@ -104,7 +104,7 @@ class InspectionWorkflowService:
             trigger_source=trigger_source,
         )
 
-        if trigger_source in {"plc", "io"}:
+        if trigger_source in {"plc", "io", "manual"}:
             plc_started_at = perf_counter()
             plc_output_sent, plc_output_message = self._handle_plc_result(recipe_document, inspection_result)
             plc_ms = (perf_counter() - plc_started_at) * 1000.0
@@ -178,25 +178,27 @@ class InspectionWorkflowService:
     ) -> tuple[bool, str]:
         plc_config = recipe_document.recipe.plc
         if not plc_config.enabled:
-            return False, "配方未启用 PLC，未输出 NG 信号"
+            return False, "配方未启用 PLC，未输出信号"
+
+        if recipe_document.recipe.trigger_mode == "plc_external":
+            if inspection_result.overall_result == "OK":
+                try:
+                    output_message = self._camera_service.emit_pass_output(
+                        preferred_device_index=0,
+                        channel=plc_config.ng_output.channel or "Line1",
+                        delay_ms=plc_config.ng_output.delay_ms,
+                    )
+                except CameraServiceError as exc:
+                    return False, f"相机 IO OK 输出失败: {exc}"
+                return True, output_message
+            else:
+                return False, "检测结果为 NG，Line1 保持低电平"
 
         if inspection_result.overall_result == "OK":
             return False, "检测结果为 OK，未输出 NG 信号"
 
         if not plc_config.ng_output.enabled:
             return False, "配方未启用 NG 输出"
-
-        if recipe_document.recipe.trigger_mode == "plc_external":
-            try:
-                output_message = self._camera_service.emit_ng_output(
-                    preferred_device_index=0,
-                    channel=plc_config.ng_output.channel or "Line1",
-                    pulse_ms=plc_config.ng_output.pulse_ms,
-                    delay_ms=plc_config.ng_output.delay_ms,
-                )
-            except CameraServiceError as exc:
-                return False, f"相机 IO NG 输出失败: {exc}"
-            return True, output_message
 
         if self._plc_service is None:
             return False, "PLC 服务未配置，未输出 NG 信号"

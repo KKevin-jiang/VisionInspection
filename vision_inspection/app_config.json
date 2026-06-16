@@ -4,7 +4,10 @@
     "gain_raw": 18.0,
     "gamma": 1.0,
     "frame_rate": 30.0,
-    "digital_gain": 1.0
+    "digital_gain": 1.0,
+    "trigger_source": "Line0",
+    "trigger_activation": "LevelHigh",
+    "trigger_debounce_us": 50
   },
   "database": {
     "server": "192.168.0.101\\SQL201",

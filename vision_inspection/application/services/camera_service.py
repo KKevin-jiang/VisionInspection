@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
@@ -10,6 +11,8 @@ from vision_inspection.infrastructure.camera import (
     HikCameraError,
     HikCameraTimeoutError,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -33,6 +36,8 @@ class CameraService:
         self._devices: List[CameraDeviceInfo] = []
         self._active_device_index: Optional[int] = None
         self._capture_mode: Optional[str] = None
+        self._trigger_activation: str = "RisingEdge"
+        self._pass_pulse_ms: int = 500
 
     def list_devices(self) -> List[CameraDeviceInfo]:
         client = self._get_client()
@@ -74,11 +79,13 @@ class CameraService:
         except HikCameraError as exc:
             raise CameraServiceError(str(exc)) from exc
 
-    def emit_ng_output(
+    def set_pass_pulse_ms(self, pulse_ms: int) -> None:
+        self._pass_pulse_ms = pulse_ms
+
+    def emit_pass_output(
         self,
         preferred_device_index: int = 0,
         channel: str = "Line1",
-        pulse_ms: int = 50,
         delay_ms: int = 0,
     ) -> str:
         client = self._get_client()
@@ -90,11 +97,44 @@ class CameraService:
 
         self._ensure_device_open(preferred_device_index)
         output_channel = channel or "Line1"
+        pulse_ms = self._pass_pulse_ms
+        _logger.info("emit_pass_output: channel=%s pulse_ms=%d delay_ms=%d activation=%s",
+                     output_channel, pulse_ms, delay_ms, self._trigger_activation)
         try:
-            client.pulse_output_line(line_name=output_channel, pulse_ms=pulse_ms, delay_ms=delay_ms)
+            client.pulse_output_line(
+                line_name=output_channel,
+                pulse_ms=pulse_ms,
+                delay_ms=delay_ms,
+                trigger_activation=self._trigger_activation,
+            )
         except HikCameraError as exc:
             raise CameraServiceError(str(exc)) from exc
-        return f"相机 {output_channel} 已输出 NG 脉冲 {pulse_ms} ms"
+        # NOTE: _capture_mode is intentionally preserved here.
+        # pulse_output_line()'s finally block restores the camera to external trigger
+        # mode + starts grabbing, so the camera state matches what _capture_mode says.
+        # Invalidating _capture_mode would force _prepare_capture_mode to stop/restart
+        # grabbing on every subsequent IO cycle, creating a window where Line0 triggers
+        # are missed.
+        return f"相机 {output_channel} 已输出 OK 脉冲 {pulse_ms} ms"
+
+    def diagnose_output_line(
+        self,
+        preferred_device_index: int = 0,
+        channel: str = "Line1",
+    ) -> str:
+        client = self._get_client()
+        devices = self.list_devices()
+        if not devices:
+            raise CameraServiceError("未发现可用海康相机")
+        if preferred_device_index < 0 or preferred_device_index >= len(devices):
+            raise CameraServiceError(f"无效的相机索引: {preferred_device_index}")
+
+        self._ensure_device_open(preferred_device_index)
+        output_channel = channel or "Line1"
+        try:
+            return client.diagnose_output_line(line_name=output_channel)
+        except HikCameraError as exc:
+            raise CameraServiceError(str(exc)) from exc
 
     def prepare_external_trigger_listener(self, preferred_device_index: int = 0) -> str:
         client = self._get_client()
@@ -110,6 +150,10 @@ class CameraService:
         try:
             if not client.is_grabbing:
                 client.start_grabbing()
+            # Clear any stale frames that may have been buffered during
+            # start_grabbing, so the first grab_frame() call genuinely
+            # waits for a fresh Line0 trigger.
+            client.clear_image_buffer()
         except HikCameraError as exc:
             raise CameraServiceError(str(exc)) from exc
         return selected_device.display_name
@@ -198,6 +242,13 @@ class CameraService:
         self._active_device_index = device_index
         self._capture_mode = None
 
+    def set_trigger_activation(self, activation: str) -> None:
+        if self._trigger_activation != activation:
+            _logger.info("set_trigger_activation: %s -> %s (invalidating capture_mode cache)",
+                         self._trigger_activation, activation)
+            self._capture_mode = None
+        self._trigger_activation = activation
+
     def _prepare_capture_mode(self, trigger_mode: str) -> None:
         client = self._get_client()
         normalized_mode = (trigger_mode or "manual").strip().lower()
@@ -214,7 +265,7 @@ class CameraService:
             if normalized_mode == "manual":
                 client.set_continuous_mode()
             elif normalized_mode == "plc_external":
-                client.set_external_trigger_mode()
+                client.set_external_trigger_mode(trigger_activation=self._trigger_activation)
             else:
                 client.set_software_trigger_mode()
         except HikCameraError as exc:

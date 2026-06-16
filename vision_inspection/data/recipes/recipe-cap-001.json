@@ -82,7 +82,7 @@
       "ng_output": {
         "enabled": true,
         "signal_name": "NG_OUT",
-        "channel": "Y0",
+        "channel": "Line1",
         "pulse_ms": 100,
         "delay_ms": 0,
         "reset_mode": "auto"

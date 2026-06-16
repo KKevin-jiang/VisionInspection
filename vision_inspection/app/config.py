@@ -13,6 +13,9 @@ class CameraParamsConfig:
     gamma: float = 1.0
     frame_rate: float = 30.0
     digital_gain: float = 1.0
+    trigger_source: str = "Line0"
+    trigger_activation: str = "RisingEdge"
+    trigger_debounce_us: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -21,6 +24,9 @@ class CameraParamsConfig:
             "gamma": self.gamma,
             "frame_rate": self.frame_rate,
             "digital_gain": self.digital_gain,
+            "trigger_source": self.trigger_source,
+            "trigger_activation": self.trigger_activation,
+            "trigger_debounce_us": self.trigger_debounce_us,
         }
 
     @classmethod
@@ -31,6 +37,9 @@ class CameraParamsConfig:
             gamma=float(data.get("gamma", 1.0)),
             frame_rate=float(data.get("frame_rate", 30.0)),
             digital_gain=float(data.get("digital_gain", 1.0)),
+            trigger_source=data.get("trigger_source", "Line0"),
+            trigger_activation=data.get("trigger_activation", "RisingEdge"),
+            trigger_debounce_us=int(data.get("trigger_debounce_us", 0)),
         )
 
 

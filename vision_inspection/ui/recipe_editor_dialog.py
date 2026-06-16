@@ -946,15 +946,15 @@ class RecipeEditorDialog(QDialog):
         if io_mode:
             self.tabs.setTabText(2, "检测与IO")
             self.strategy_intro_label.setText(
-                "这一页决定检测判定规则与相机 IO 联动方式。当前配方使用外部硬件触发：Line0 负责采图触发，Line1 可用于 NG 输出。"
+                "这一页决定检测判定规则与相机 IO 联动方式。当前配方使用外部硬件触发：Line0 负责采图触发，Line1 输出 OK 脉冲信号。"
             )
-            self.plc_group.setTitle("相机 IO 与 NG 输出")
+            self.plc_group.setTitle("相机 IO 与 OK 输出")
             self.plc_enabled_label.setText("启用 IO 联动")
             self.plc_enabled_check.setText("启用相机 IO")
             self.plc_trigger_source_label.setText("触发来源")
             self.plc_protocol_label.setText("通信协议")
             self.plc_timeout_label.setText("等待超时 ms")
-            self.ng_output_enabled_label.setText("启用 NG 输出")
+            self.ng_output_enabled_label.setText("启用 OK 脉冲输出")
             self.ng_signal_name_label.setText("输出说明")
             self.ng_channel_label.setText("相机输出线")
             self.plc_trigger_source_combo.setEnabled(False)
@@ -964,11 +964,11 @@ class RecipeEditorDialog(QDialog):
             self.plc_protocol_edit.setToolTip("相机 IO 模式下不走网口协议，此项仅为兼容旧配方保留。")
             self.plc_timeout_spin.setToolTip("实际等待时间由相机外触发轮询控制，此项仅为兼容旧配方保留。")
             self.ng_channel_edit.setPlaceholderText("Line1")
-            self.ng_signal_name_edit.setPlaceholderText("例如：NG回传PLC")
+            self.ng_signal_name_edit.setPlaceholderText("例如：OK回传PLC")
             if not self.ng_channel_edit.text().strip():
                 self.ng_channel_edit.setText("Line1")
             if not self.ng_signal_name_edit.text().strip():
-                self.ng_signal_name_edit.setText("camera_io_ng")
+                self.ng_signal_name_edit.setText("camera_io_ok")
             return
 
         self.tabs.setTabText(2, "检测与 PLC")
