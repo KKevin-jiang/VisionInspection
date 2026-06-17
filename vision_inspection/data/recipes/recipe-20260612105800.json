@@ -120,7 +120,7 @@
       "timeout_ms": 500
     },
     "storage": {
-      "root_dir": "data",
+      "root_dir": "D:\\VisionImages",
       "save_raw_image": false,
       "save_result_image": true,
       "save_only_ng_image": false,

@@ -43,7 +43,7 @@ from vision_inspection.application.controllers.inspection_controller import Insp
 from vision_inspection.application.controllers.inspection_workflow_controller import InspectionWorkflowController
 from vision_inspection.application.controllers.plc_controller import PlcController
 from vision_inspection.application.services.crankshaft_api import CrankshaftApiClient, CrankshaftApiError, validate_serial_no
-from vision_inspection.application.services.inspection_workflow_service import InspectionExecutionResult
+from vision_inspection.application.services.inspection_workflow_service import InspectionExecutionResult, SaveResultSnapshot
 from vision_inspection.application.services.report_service import ReportService
 from vision_inspection.application.controllers.recipe_controller import RecipeController
 from vision_inspection.infrastructure.database import SqlServerClient
@@ -224,6 +224,11 @@ class MainWindow(QMainWindow):
         self._clock_timer.timeout.connect(self._update_clock_display)
         self._clock_timer.start(1000)
 
+        # 定时轮询后台保存结果
+        self._save_poll_timer = QTimer(self)
+        self._save_poll_timer.timeout.connect(self._poll_save_results)
+        self._save_poll_timer.start(500)
+
         for label in [
             self.result_duration_label,
             self.trigger_time_label,
@@ -319,6 +324,24 @@ class MainWindow(QMainWindow):
 
     def _update_clock_display(self) -> None:
         self.header_time_label.setText(QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm:ss"))
+
+    def _poll_save_results(self) -> None:
+        """轮询后台保存结果，更新 UI 标签。"""
+        try:
+            snapshots = self._inspection_workflow_controller.drain_save_results()
+        except Exception:
+            return
+        if not snapshots:
+            return
+        # 取最新的一个快照
+        latest = snapshots[-1]
+        if latest.status == "ok":
+            self.recent_save_path_label.setText(latest.record_dir)
+            self.recent_save_path_label.setStyleSheet("color: #22c55e; font-size: 11px;")
+        elif latest.status == "error":
+            short_error = latest.error_message[:80]
+            self.recent_save_path_label.setText(f"保存失败: {short_error}")
+            self.recent_save_path_label.setStyleSheet("color: #ef4444; font-size: 11px; font-weight: bold;")
 
     def _set_runtime_state_style(self, text: str, foreground: str, background: str) -> None:
         self.runtime_state_label.setText(text)
@@ -510,16 +533,16 @@ class MainWindow(QMainWindow):
         if candidate_path and candidate_path != "-":
             resolved = Path(candidate_path)
             if not resolved.is_absolute():
-                resolved = Path.cwd() / resolved
+                resolved = Path(self._app_config.storage.image_root) / resolved
             if resolved.exists():
                 return resolved if resolved.is_dir() else resolved.parent
 
         if self._current_recipe is None:
             return None
 
-        root_dir = Path(self._current_recipe.recipe.storage.root_dir or "data")
+        root_dir = Path(self._current_recipe.recipe.storage.root_dir or self._app_config.storage.image_root)
         if not root_dir.is_absolute():
-            root_dir = Path.cwd() / root_dir
+            root_dir = Path(self._app_config.storage.image_root) / root_dir
         record_root = root_dir / "records"
         if self._current_recipe.recipe.storage.recipe_subdir_mode == "by_recipe":
             record_root = record_root / self._current_recipe.recipe.id
@@ -778,8 +801,28 @@ class MainWindow(QMainWindow):
         self._show_recipe(self._recipe_controller.get_recipe(recipe_id))
         self._push_status_message(f"已手动切换至: {self.switch_machine_combo.currentText()}")
 
-    def _recipe_key(self, machine_type: str) -> str:
-        return machine_type.strip()[:4]
+    def _match_recipe_for_model(self, full_model: str, summaries: list) -> object | None:
+        """根据机型号匹配配方，按优先级：recipe_id 精确匹配 > name 精确匹配 > product_name 精确匹配 > 前缀匹配。"""
+        model = full_model.strip()
+        # 1) recipe_id 精确匹配
+        matched = next((s for s in summaries if s.recipe_id == model), None)
+        if matched is not None:
+            return matched
+        # 2) name 精确匹配
+        matched = next((s for s in summaries if s.name == model), None)
+        if matched is not None:
+            return matched
+        # 3) product_name 精确匹配
+        matched = next((s for s in summaries if s.product_name == model), None)
+        if matched is not None:
+            return matched
+        # 4) 前缀匹配（model 是 name 或 product_name 的前缀）
+        matched = next((s for s in summaries if s.name.startswith(model) or s.product_name.startswith(model)), None)
+        if matched is not None:
+            return matched
+        # 5) name 或 product_name 是 model 的前缀（例如 model="19V3_XXX", name="19V3"）
+        matched = next((s for s in summaries if model.startswith(s.name) or (s.product_name and model.startswith(s.product_name))), None)
+        return matched
 
     def _on_serial_input_return(self) -> None:
         serial_no = self.switch_serial_input.text().strip()
@@ -802,25 +845,24 @@ class MainWindow(QMainWindow):
             self.switch_machine_label.setText("查询失败")
             return False
 
-        recipe_key = self._recipe_key(full_model)
         self.switch_machine_label.setText(full_model)
 
         summaries = self._recipe_controller.list_recipe_summaries()
-        matched = next((s for s in summaries if s.recipe_id == recipe_key), None)
+        matched = self._match_recipe_for_model(full_model, summaries)
         if matched is None:
             self._push_status_message(
-                f"未找到配方: 机型 {full_model} → 配方键 '{recipe_key}'，请新建对应配方文件",
+                f"未找到配方: 机型 '{full_model}'，请新建对应配方文件",
                 level="WARN",
             )
             return False
 
         current_id = self._current_recipe.recipe.id if self._current_recipe else None
-        if recipe_key == current_id:
-            self._push_status_message(f"配方未变化: {recipe_key} ({full_model})")
+        if matched.recipe_id == current_id:
+            self._push_status_message(f"配方未变化: {matched.recipe_id} ({full_model})")
             return True
 
-        self._show_recipe(self._recipe_controller.get_recipe(recipe_key))
-        self._push_status_message(f"自动换型: {current_id or '无'} → {recipe_key} ({full_model})")
+        self._show_recipe(self._recipe_controller.get_recipe(matched.recipe_id))
+        self._push_status_message(f"自动换型: {current_id or '无'} → {matched.recipe_id} ({full_model})")
         return True
 
     def _build_top_bar(self) -> QWidget:
@@ -1597,8 +1639,17 @@ class MainWindow(QMainWindow):
             status_message = f"{status_message}; {execution_result.save_message}"
             if execution_result.save_message.startswith("结果已保存: "):
                 self.recent_save_path_label.setText(execution_result.save_message.replace("结果已保存: ", ""))
-            elif execution_result.save_message == "结果保存已转后台":
-                self.recent_save_path_label.setText("后台保存中")
+                self.recent_save_path_label.setStyleSheet("color: #22c55e; font-size: 11px;")
+            elif execution_result.save_message.startswith("结果保存已转后台"):
+                if "失败" in execution_result.save_message:
+                    self.recent_save_path_label.setText("后台保存异常 ⚠️")
+                    self.recent_save_path_label.setStyleSheet("color: #f59e0b; font-size: 11px; font-weight: bold;")
+                else:
+                    self.recent_save_path_label.setText("后台保存中")
+                    self.recent_save_path_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+            elif "保存失败" in execution_result.save_message:
+                self.recent_save_path_label.setText("保存失败")
+                self.recent_save_path_label.setStyleSheet("color: #ef4444; font-size: 11px; font-weight: bold;")
         if execution_result.plc_output_message:
             status_message = f"{status_message}; {execution_result.plc_output_message}"
         self.trigger_time_label.setText(QDateTime.currentDateTime().toString("HH:mm:ss.zzz"))
@@ -1949,4 +2000,6 @@ class MainWindow(QMainWindow):
             self._inspection_thread.wait(2000)
         self._stop_plc_listener()
         self._camera_controller.shutdown()
+        # 等待后台图片保存任务完成，防止退出时丢失未保存的图片
+        self._inspection_workflow_controller.shutdown(timeout_seconds=5.0)
         super().closeEvent(event)

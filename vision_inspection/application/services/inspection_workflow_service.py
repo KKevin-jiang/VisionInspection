@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
+from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from threading import Lock
 from time import perf_counter
 
 from vision_inspection.application.services.camera_service import (
@@ -17,6 +20,8 @@ from vision_inspection.domain.models.inspection_result import InspectionResult
 from vision_inspection.domain.models.recipe import RecipeDocument
 from vision_inspection.infrastructure.storage import InspectionRecordSaveResult
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class InspectionExecutionResult:
@@ -28,6 +33,15 @@ class InspectionExecutionResult:
     plc_output_sent: bool = False
     plc_output_message: str = ""
     phase_metrics: dict[str, float] | None = None
+
+
+@dataclass
+class SaveResultSnapshot:
+    """供 UI 轮询的保存结果快照，线程安全。"""
+    status: str  # "ok" | "error"
+    record_dir: str = ""
+    record_id: str = ""
+    error_message: str = ""
 
 
 class InspectionWorkflowError(RuntimeError):
@@ -52,6 +66,14 @@ class InspectionWorkflowService:
         self._plc_service = plc_service
         self._save_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="record-save")
         self._pending_save_futures: set[Future] = set()
+        # --- 保存健康状态追踪 ---
+        self._save_stats_lock = Lock()
+        self._consecutive_save_failures = 0
+        self._total_save_failures = 0
+        self._total_save_successes = 0
+        self._last_save_error = ""
+        # 最近的保存结果队列（供 UI 轮询消费）
+        self._save_result_queue: deque[SaveResultSnapshot] = deque(maxlen=50)
 
     def execute_inspection(
         self,
@@ -237,6 +259,10 @@ class InspectionWorkflowService:
         if self._record_service is None:
             return None, "未配置结果保存服务"
 
+        # 检查最近的保存失败，如果有则警告用户
+        with self._save_stats_lock:
+            recent_errors = self._consecutive_save_failures
+
         future = self._save_executor.submit(
             self._record_service.save_inspection_record,
             recipe_document=recipe_document,
@@ -246,11 +272,82 @@ class InspectionWorkflowService:
         )
         self._pending_save_futures.add(future)
         future.add_done_callback(self._on_save_future_done)
+
+        if recent_errors > 0:
+            with self._save_stats_lock:
+                last_err = self._last_save_error
+            logger.warning("后台保存进行中，但最近 %d 次保存失败 (最近错误: %s)", recent_errors, last_err[:120])
+            return None, f"结果保存已转后台 ⚠️ 最近{recent_errors}次失败"
         return None, "结果保存已转后台"
 
     def _on_save_future_done(self, future: Future) -> None:
         self._pending_save_futures.discard(future)
         try:
-            future.result()
+            save_result = future.result()
+            with self._save_stats_lock:
+                if self._consecutive_save_failures > 0:
+                    logger.info(
+                        "后台保存已恢复 (之前失败 %d 次, 记录=%s)",
+                        self._consecutive_save_failures,
+                        save_result.record_id,
+                    )
+                self._consecutive_save_failures = 0
+                self._total_save_successes += 1
+                self._save_result_queue.append(
+                    SaveResultSnapshot(
+                        status="ok",
+                        record_dir=str(save_result.record_dir),
+                        record_id=save_result.record_id,
+                    )
+                )
         except Exception as exc:
-            print(f"record save failed in background: {exc}")
+            error_msg = str(exc)
+            with self._save_stats_lock:
+                self._consecutive_save_failures += 1
+                self._total_save_failures += 1
+                self._last_save_error = error_msg
+                self._save_result_queue.append(
+                    SaveResultSnapshot(status="error", error_message=error_msg)
+                )
+            logger.error(
+                "检测结果图片保存失败 (连续失败=%d, 累计失败=%d): %s",
+                self._consecutive_save_failures,
+                self._total_save_failures,
+                exc,
+                exc_info=True,
+            )
+
+    @property
+    def save_health(self) -> dict:
+        """返回保存健康状态，供 UI 轮询显示。"""
+        with self._save_stats_lock:
+            return {
+                "consecutive_failures": self._consecutive_save_failures,
+                "total_failures": self._total_save_failures,
+                "total_successes": self._total_save_successes,
+                "last_error": self._last_save_error,
+                "pending_count": len(self._pending_save_futures),
+            }
+
+    def drain_save_results(self) -> list[SaveResultSnapshot]:
+        """取出并清空最近的保存结果快照，供 UI 轮询消费。"""
+        with self._save_stats_lock:
+            if not self._save_result_queue:
+                return []
+            drained = list(self._save_result_queue)
+            self._save_result_queue.clear()
+            return drained
+
+    def shutdown(self, timeout_seconds: float = 5.0) -> None:
+        """等待后台保存完成并关闭线程池。应在应用退出前调用。"""
+        pending = list(self._pending_save_futures)
+        if pending:
+            logger.info("正在等待 %d 个后台保存任务完成 (超时=%.1fs)...", len(pending), timeout_seconds)
+            for future in pending:
+                try:
+                    future.result(timeout=timeout_seconds)
+                except Exception as exc:
+                    logger.error("后台保存任务未在超时内完成: %s", exc)
+            logger.info("后台保存任务等待结束")
+        self._save_executor.shutdown(wait=True)
+        logger.info("结果保存线程池已关闭")

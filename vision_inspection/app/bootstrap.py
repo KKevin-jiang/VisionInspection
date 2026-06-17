@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
-from vision_inspection.app.config import AppPaths, build_app_paths
+from vision_inspection.app.config import AppConfig, AppPaths, build_app_paths, load_app_config
 from vision_inspection.application.controllers.camera_controller import CameraController
 from vision_inspection.application.controllers.inspection_controller import InspectionController
 from vision_inspection.application.controllers.inspection_workflow_controller import InspectionWorkflowController
@@ -37,7 +38,8 @@ class AppContainer:
 
 
 def build_container(project_root):
-    paths = build_app_paths(project_root)
+    app_config = load_app_config(project_root)
+    paths = build_app_paths(project_root, app_config)
     recipe_repository = RecipeRepository(paths.recipes_dir)
     recipe_service = RecipeService(recipe_repository)
     recipe_controller = RecipeController(recipe_service)
@@ -46,7 +48,7 @@ def build_container(project_root):
     inspection_detector = InspectionDetector(paths.data_dir)
     inspection_service = InspectionService(inspection_detector)
     inspection_controller = InspectionController(inspection_service)
-    record_service = RecordService(paths.project_root)
+    record_service = RecordService(Path(app_config.storage.image_root))
     plc_service = PlcService(adapter_factory=MockPlcAdapter)
     plc_controller = PlcController(plc_service)
     inspection_workflow_service = InspectionWorkflowService(camera_service, inspection_service, record_service, plc_service)

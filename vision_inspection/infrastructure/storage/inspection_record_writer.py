@@ -155,7 +155,7 @@ class InspectionRecordWriter:
 
         record_dir = root_dir / "records"
         if storage.recipe_subdir_mode == "by_recipe":
-            record_dir = record_dir / recipe_document.recipe.id
+            record_dir = record_dir / (recipe_document.recipe.product_name or recipe_document.recipe.id)
         if storage.date_subdir_mode == "by_day":
             record_dir = record_dir / timestamp.strftime("%Y-%m-%d")
         return record_dir
@@ -365,13 +365,17 @@ class InspectionRecordWriter:
 
     def _save_image(self, file_path: Path, image: np.ndarray) -> None:
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        if cv2 is not None:
-            success = cv2.imwrite(str(file_path), image)
+        path_str = str(file_path)
+        # cv2.imwrite 在 Windows 上不支持含中文/Unicode 的路径，会静默返回 False。
+        # 检测到非 ASCII 路径时直接走 QImage 分支，避免 cv2 写出乱码文件。
+        use_cv2 = cv2 is not None and path_str.isascii()
+        if use_cv2:
+            success = cv2.imwrite(path_str, image)
             if success:
                 return
 
         qimage = self._numpy_to_qimage(image)
-        if not qimage.save(str(file_path)):
+        if not qimage.save(path_str):
             raise RuntimeError(f"图像保存失败: {file_path}")
 
     def _numpy_to_qimage(self, image: np.ndarray) -> QImage:

@@ -7,10 +7,13 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+from vision_inspection.app.config import load_app_config
 from vision_inspection.utils.logger import setup_logger
 
-# 初始化日志：同时输出到控制台 (stderr) 和 logs/vision_inspection.log
-setup_logger("vision_inspection", log_dir=Path(__file__).resolve().parents[1] / "logs")
+# 初始化日志：同时输出到控制台 (stderr) 和配置的日志目录
+_project_root = Path(__file__).resolve().parents[1]
+_app_config = load_app_config(_project_root)
+setup_logger("vision_inspection", log_dir=_app_config.storage.log_root)
 
 from PyQt5.QtWidgets import QApplication
 

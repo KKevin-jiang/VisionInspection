@@ -204,13 +204,19 @@ class AppPaths:
     logs_dir: Path
 
 
-def build_app_paths(project_root: Path) -> AppPaths:
+def build_app_paths(project_root: Path, app_config: AppConfig | None = None) -> AppPaths:
     data_dir = project_root / "data"
+    if app_config is not None:
+        records_dir = Path(app_config.storage.image_root)
+        logs_dir = Path(app_config.storage.log_root)
+    else:
+        records_dir = data_dir / "records"
+        logs_dir = data_dir / "logs"
     return AppPaths(
         project_root=project_root,
         data_dir=data_dir,
         recipes_dir=data_dir / "recipes",
         templates_dir=data_dir / "templates",
-        records_dir=data_dir / "records",
-        logs_dir=data_dir / "logs",
+        records_dir=records_dir,
+        logs_dir=logs_dir,
     )
