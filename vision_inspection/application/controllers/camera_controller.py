@@ -19,6 +19,9 @@ class CameraController:
     def prepare_external_trigger_listener(self, preferred_device_index: int = 0) -> str:
         return self._camera_service.prepare_external_trigger_listener(preferred_device_index)
 
+    def clear_image_buffer(self, preferred_device_index: int = 0) -> None:
+        self._camera_service.clear_image_buffer(preferred_device_index)
+
     def set_trigger_activation(self, activation: str) -> None:
         self._camera_service.set_trigger_activation(activation)
 

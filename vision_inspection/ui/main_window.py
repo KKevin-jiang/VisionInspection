@@ -103,6 +103,7 @@ class MainWindow(QMainWindow):
         self._external_trigger_listening = False
         self._pending_external_wait = False
         self._external_wait_timeout_count = 0
+        self._ng_cooldown_until: float = 0  # NG 后冷却截止时间（perf_counter 秒），防止 Line0 高电平重复触发
         self._inspection_started_at: float | None = None
         self._inspection_total_count = 0
         self._inspection_ok_count = 0
@@ -148,7 +149,7 @@ class MainWindow(QMainWindow):
         self.ok_count_label = QLabel("0")
         self.ng_count_label = QLabel("0")
         self.yield_label = QLabel("0.0%")
-        self.result_label = QLabel("待机")
+        self.result_label = QLabel("-")
         self.result_label.setAlignment(Qt.AlignCenter)
         self.current_template_info_label = QLabel("-")
         self.result_duration_label = QLabel("-")
@@ -1490,7 +1491,6 @@ class MainWindow(QMainWindow):
             self.roi_table.setRowCount(0)
             self.image_canvas.clear_image()
             self.image_canvas.set_roi_rects([])
-            self.result_label.setText("无配方")
             self._update_parallel_comparison(None)
             self.target_cycle_label.setText("-")
             self._reset_dashboard()
@@ -1512,7 +1512,6 @@ class MainWindow(QMainWindow):
                 self.switch_machine_combo.setCurrentIndex(idx)
         self.current_template_info_label.setText(template.name if template else "-")
         self.last_error_label.setText("-")
-        self.result_label.setText("待机")
         self._update_parallel_comparison(None)
         self.target_cycle_label.setText(f"{recipe.runtime.target_cycle_ms} ms")
         self._reset_dashboard()
@@ -1543,7 +1542,6 @@ class MainWindow(QMainWindow):
     def _capture_manual_frame(self) -> None:
         if self._current_recipe is None:
             self._push_status_message("当前没有可用配方，无法执行手动采图", level="WARN")
-            self.result_label.setText("无配方")
             return
 
         if self._external_trigger_listening:
@@ -1562,7 +1560,6 @@ class MainWindow(QMainWindow):
         self.manual_test_button.setEnabled(False)
         self.plc_trigger_button.setEnabled(False)
         self._inspection_started_at = perf_counter()
-        self.result_label.setText("采图中")
         self._set_runtime_state_style("手动检测中", "#92400e", "#fef3c7")
         self._start_inspection_thread(self._current_recipe, trigger_source="manual")
 
@@ -1670,6 +1667,10 @@ class MainWindow(QMainWindow):
             self.plc_label.setText("等待 Line0")
             self._set_runtime_state_style("IO触发待机", "#1d4ed8", "#dbeafe")
             self._pending_external_wait = True
+            if inspection_result.overall_result != "OK":
+                # NG 后启动 1 秒冷却期，防止 Line0 仍为高电平时采集引擎立即出帧
+                self._ng_cooldown_until = perf_counter() + 1.0
+                _logger.info("_on_inspection_finished: NG冷却期 1s (until=%.3f)", self._ng_cooldown_until)
         else:
             self.manual_test_button.setEnabled(True)
             self.plc_trigger_button.setEnabled(self._current_recipe is None or self._current_recipe.recipe.trigger_mode != "plc_external")
@@ -1678,7 +1679,6 @@ class MainWindow(QMainWindow):
         failure_title = "IO 触发失败" if self._current_recipe is not None and self._current_recipe.recipe.trigger_mode == "plc_external" else "手动测试失败"
         QMessageBox.critical(self, failure_title, message)
 
-        self.result_label.setText("采图失败")
         self.last_error_label.setText(message)
         self.trigger_time_label.setText(QDateTime.currentDateTime().toString("HH:mm:ss.zzz"))
         self.result_ng_count_label.setText("0")
@@ -1700,8 +1700,7 @@ class MainWindow(QMainWindow):
             self._external_wait_timeout_count += 1
             waited_seconds = self._external_wait_timeout_count * 0.5
             self.plc_label.setText(f"等待 Line0 ({waited_seconds:.1f}s)")
-            if self._external_wait_timeout_count == 1 or self._external_wait_timeout_count % 6 == 0:
-                self._push_status_message(f"IO 监听中，仍在等待 Line0 触发脉冲，已等待 {waited_seconds:.1f} s", log=False)
+            # status bar stays at "正在等待相机line0外部触发", no repeated timeout message
             self._pending_external_wait = True
             return
         self._push_status_message(message, level="WARN")
@@ -1715,7 +1714,9 @@ class MainWindow(QMainWindow):
             self._inspection_thread = None
         if self._pending_external_wait and self._external_trigger_listening:
             self._pending_external_wait = False
-            QTimer.singleShot(0, self._queue_external_trigger_wait)
+            _logger.info("_cleanup_inspection_thread: 50ms后重新排队IO检测 (timeout_count=%d)",
+                         self._external_wait_timeout_count)
+            QTimer.singleShot(50, self._queue_external_trigger_wait)
 
     def _apply_inspection_result(self, inspection_result: InspectionResult) -> None:
         self.result_label.setText(inspection_result.overall_result)
@@ -1850,10 +1851,9 @@ class MainWindow(QMainWindow):
         self.plc_trigger_button.setEnabled(False)
         self._set_camera_params_enabled(False)
         self.plc_label.setText("等待 Line0")
-        self.result_label.setText("等待触发")
         # camera_label is managed by _refresh_status_indicators — keep it stable
         self._set_runtime_state_style("IO触发待机", "#1d4ed8", "#dbeafe")
-        self._push_status_message(f"相机外部 IO 监听已启动: {device_name}，等待 Line0 触发")
+        self._push_status_message("正在等待相机line0外部触发")
         self._queue_external_trigger_wait()
 
     def _queue_external_trigger_wait(self) -> None:
@@ -1864,13 +1864,20 @@ class MainWindow(QMainWindow):
         if self._inspection_thread is not None and self._inspection_thread.isRunning():
             _logger.debug("_queue_external_trigger_wait: skipped (thread still running)")
             return
+        # NG 冷却期检查：NG 后 Line0 可能仍为高电平，采集引擎会立即出帧，
+        # 等待冷却期结束后再排队，确保 Line0 回到低电平。
+        now = perf_counter()
+        if now < self._ng_cooldown_until:
+            remaining_ms = int((self._ng_cooldown_until - now) * 1000)
+            _logger.info("_queue_external_trigger_wait: NG 冷却中，%d ms 后重试", remaining_ms)
+            QTimer.singleShot(min(remaining_ms, 500), self._queue_external_trigger_wait)
+            return
         _logger.info("_queue_external_trigger_wait: starting IO inspection (timeout_count=%d)",
                      self._external_wait_timeout_count)
         if self._app_config.switch_mode == "auto":
             serial_no = self.switch_serial_input.text().strip()
             if serial_no:
                 self._try_auto_switch(serial_no)
-        self.result_label.setText("等待触发")
         self._start_inspection_thread(self._current_recipe, trigger_source="io")
 
     def _stop_plc_listener(self) -> None:
@@ -1925,7 +1932,6 @@ class MainWindow(QMainWindow):
         self.manual_test_button.setEnabled(False)
         self.plc_trigger_button.setEnabled(False)
         self._inspection_started_at = perf_counter()
-        self.result_label.setText("PLC触发")
         self.trigger_time_label.setText(QDateTime.currentDateTime().toString("HH:mm:ss.zzz"))
         self._set_runtime_state_style("PLC触发检测中", "#92400e", "#fef3c7")
         self._start_inspection_thread(self._current_recipe, trigger_source="plc")

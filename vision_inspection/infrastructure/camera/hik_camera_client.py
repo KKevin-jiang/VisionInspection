@@ -39,7 +39,7 @@ from CameraParams_header import (
     MVCC_INTVALUE_EX,
 )
 from MvCameraControl_class import MvCamera
-from MvErrorDefine_const import MV_E_GC_TIMEOUT, MV_E_NODATA, MV_OK
+from MvErrorDefine_const import MV_E_CALLORDER, MV_E_GC_TIMEOUT, MV_E_NODATA, MV_OK
 from PixelType_header import (
     PixelType_Gvsp_BGR8_Packed,
     PixelType_Gvsp_BayerBG10,
@@ -1005,6 +1005,12 @@ class HikCameraClient:
         if self._grabbing:
             return
         ret = self._camera.MV_CC_StartGrabbing()
+        if ret == MV_E_CALLORDER:
+            # CALLORDER on StartGrabbing typically means the device is
+            # already streaming.  Sync our flag and carry on.
+            _logger.warning("start_grabbing: SDK returned CALLORDER (already grabbing); syncing flag to True")
+            self._grabbing = True
+            return
         self._raise_for_ret("start grabbing", ret)
         self._grabbing = True
 
@@ -1013,6 +1019,17 @@ class HikCameraClient:
         if not self._grabbing:
             return
         ret = self._camera.MV_CC_StopGrabbing()
+        if ret == MV_E_CALLORDER:
+            # CALLORDER on StopGrabbing means the SDK believes we are not
+            # currently streaming.  The most common cause is that our
+            # internal _grabbing flag drifted out of sync with the real
+            # device state (e.g. after a partially-failed pulse_output_line
+            # sequence).  Sync the flag and move on — forcing an error here
+            # would leave the flag stuck at True permanently and break
+            # every subsequent capture attempt.
+            _logger.warning("stop_grabbing: SDK returned CALLORDER (not grabbing); syncing flag to False")
+            self._grabbing = False
+            return
         self._raise_for_ret("stop grabbing", ret)
         self._grabbing = False
 

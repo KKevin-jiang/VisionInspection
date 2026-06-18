@@ -121,8 +121,8 @@ def model_by_serial():
     if not serial_no:
         return jsonify({"code": 400, "message": "missing serialNo", "machineType": ""}), 400
 
-    # 流水号校验：非"0"、长度 10
-    if serial_no == "0" or len(serial_no) != 10:
+    # 流水号校验：非"0"、长度 12
+    if serial_no == "0" or len(serial_no) != 12:
         logger.warning(
             "无效流水号: serialNo=%s source=%s requestId=%s", serial_no, source, request_id
         )

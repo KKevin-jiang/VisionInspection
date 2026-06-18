@@ -20,8 +20,8 @@ def validate_serial_no(serial_no: str | None) -> str | None:
     serial_no = serial_no.strip()
     if serial_no == "0":
         return "流水号为无效值 '0'，已丢弃"
-    if len(serial_no) != 10:
-        return f"流水号长度必须为 10 位，当前为 {len(serial_no)} 位"
+    if len(serial_no) != 12:
+        return f"流水号长度必须为 12 位，当前为 {len(serial_no)} 位"
     return None
 
 

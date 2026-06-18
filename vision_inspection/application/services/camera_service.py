@@ -72,7 +72,20 @@ class CameraService:
                 client.start_grabbing()
             if trigger_mode == "software_trigger":
                 client.trigger_software_once()
+            # 外部触发模式下清空帧缓冲，丢弃检测处理期间堆积的旧帧，
+            # 确保 grab_frame 只接收新的 Line0 触发帧。
+            if (trigger_mode or "manual").strip().lower() == "plc_external":
+                import time as _time2
+                _t_clear = _time2.perf_counter()
+                client.clear_image_buffer()
             frame = client.grab_frame(timeout_ms=effective_timeout_ms)
+            if (trigger_mode or "manual").strip().lower() == "plc_external":
+                _elapsed = (_time2.perf_counter() - _t_clear) * 1000
+                _logger.info(
+                    "capture_frame: grab_frame 返回 (frame=%d, 距clear %.1f ms, timeout=%d ms)%s",
+                    frame.frame_number, _elapsed, effective_timeout_ms,
+                    " ⚡帧到达极快!" if _elapsed < 50 else "",
+                )
             return CameraCapture(device=selected_device, frame=frame)
         except HikCameraTimeoutError as exc:
             raise CameraTriggerTimeoutError(self._build_timeout_message(trigger_mode, effective_timeout_ms)) from exc
@@ -135,6 +148,39 @@ class CameraService:
             return client.diagnose_output_line(line_name=output_channel)
         except HikCameraError as exc:
             raise CameraServiceError(str(exc)) from exc
+
+    def clear_image_buffer(self, preferred_device_index: int = 0) -> None:
+        """清空相机内部图像缓冲，丢弃抓流期间堆积的旧帧。"""
+        client = self._get_client()
+        devices = self.list_devices()
+        if not devices:
+            return
+        self._ensure_device_open(preferred_device_index)
+        client.clear_image_buffer()
+
+    def flush_grab_pipeline(self, preferred_device_index: int = 0) -> None:
+        """停止拉流→清空缓冲→重新拉流，彻底冲刷相机取流管线。
+
+        用于 NG 检测后确保下一次 grab_frame 必须等待新的 Line0 触发，
+        而非立即返回检测期间堆积在 SDK 队列中的旧帧。
+
+        .. warning::
+           此方法在 stop_grabbing 之后调用 clear_image_buffer 会失败
+           (0x80000003 MV_E_CALLORDER)，且 start_grabbing 重启采集引擎时
+           若 Line0 仍为 HIGH 电平，相机会不经触发立即出帧。
+           NG 路径已改用 clear_image_buffer 替代，本方法保留供其他场景使用。
+        """
+        client = self._get_client()
+        devices = self.list_devices()
+        if not devices:
+            return
+        self._ensure_device_open(preferred_device_index)
+        _logger.info("flush_grab_pipeline: 开始 (is_grabbing=%s)", client.is_grabbing)
+        if client.is_grabbing:
+            client.stop_grabbing()
+        client.clear_image_buffer()
+        client.start_grabbing()
+        _logger.info("flush_grab_pipeline: stop→clear→start 完成")
 
     def prepare_external_trigger_listener(self, preferred_device_index: int = 0) -> str:
         client = self._get_client()

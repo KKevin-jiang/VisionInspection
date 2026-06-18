@@ -214,6 +214,17 @@ class InspectionWorkflowService:
                     return False, f"相机 IO OK 输出失败: {exc}"
                 return True, output_message
             else:
+                # NG 时清空相机帧缓冲，丢弃检测处理期间堆积的旧帧，
+                # 确保下一轮 grab_frame 必须等待新的 Line0 触发。
+                # 注意：不使用 flush_grab_pipeline（stop→clear→start），
+                # 因为 stop/start 重启采集引擎会导致相机在 Line0 仍为 HIGH 时
+                # 立即出帧（不经触发），且 clear 在 stop 后调用会失败(0x80000003)。
+                # capture_frame 在 grab_frame 前已调用 clear_image_buffer，
+                # 此处仅做额外的一次预清理。
+                try:
+                    self._camera_service.clear_image_buffer(preferred_device_index=0)
+                except Exception:
+                    pass
                 return False, "检测结果为 NG，Line1 保持低电平"
 
         if inspection_result.overall_result == "OK":
